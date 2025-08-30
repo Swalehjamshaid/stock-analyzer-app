@@ -1,0 +1,840 @@
+import React, { useState, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Search, Trash2, TrendingUp, TrendingDown, Clock, ThumbsUp, ThumbsDown, BarChart, Newspaper, DollarSign } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, doc, deleteDoc, onSnapshot, collection, addDoc, setDoc, getDoc, setLogLevel } from 'firebase/firestore';
+
+// --- IMPORTANT DISCLAIMER ---
+// This app provides simulated buy/sell recommendations based on simple rules and mock data.
+// It is NOT a substitute for professional financial advice. Always consult a qualified financial
+// advisor before making any investment decisions. The predictions are for educational and
+// demonstration purposes only.
+// ---
+
+// --- Firebase Setup ---
+setLogLevel('debug');
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+let db, auth;
+if (Object.keys(firebaseConfig).length > 0) {
+    try {
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+    } catch (error) {
+        console.error("Firebase initialization error:", error);
+    }
+}
+
+// Mock API data to simulate a real-world stock API response with 3 years of history,
+// plus new simulated data for news and economic analysis.
+const mockStockData = {
+    'GOOG': {
+        price: 155.23,
+        change: 1.54,
+        percentChange: 1.01,
+        newsSentiment: 0.7, // Simulated value between -1 (very negative) and 1 (very positive)
+        economicIndicator: 'Growing', // Simulated economic data
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 100 + Math.sin(i / 5) * 20 + Math.random() * 5 + (i * 1.5),
+        })),
+    },
+    'AAPL': {
+        price: 178.50,
+        change: -0.75,
+        percentChange: -0.42,
+        newsSentiment: -0.2,
+        economicIndicator: 'Stagnant',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 150 + Math.cos(i / 4) * 25 - Math.random() * 3 + (i * 0.8),
+        })),
+    },
+    'MSFT': {
+        price: 420.10,
+        change: 3.20,
+        percentChange: 0.77,
+        newsSentiment: 0.85,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 350 + Math.sin(i / 6) * 30 + Math.random() * 7 + (i * 2.1),
+        })),
+    },
+    'AMZN': {
+        price: 185.00,
+        change: 2.15,
+        percentChange: 1.18,
+        newsSentiment: 0.4,
+        economicIndicator: 'Stagnant',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 160 + Math.cos(i / 5) * 22 + Math.random() * 6 + (i * 1.3),
+        })),
+    },
+    'TSLA': {
+        price: 250.00,
+        change: 5.50,
+        percentChange: 2.24,
+        newsSentiment: 0.1,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 200 + Math.sin(i / 4) * 30 + Math.random() * 8 + (i * 1.9),
+        })),
+    },
+    'PPL': {
+        price: 10.50,
+        change: 0.25,
+        percentChange: 2.44,
+        newsSentiment: 0.6,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 8 + Math.cos(i / 3) * 1.5 + Math.random() * 0.5 + (i * 0.1),
+        })),
+    },
+    'PSX': {
+        price: 70.00,
+        change: 1.20,
+        percentChange: 1.74,
+        newsSentiment: 0.3,
+        economicIndicator: 'Stagnant',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 60 + Math.sin(i / 5) * 8 + Math.random() * 2 + (i * 0.5),
+        })),
+    },
+    'SAMSUNG': {
+        price: 120.00,
+        change: 0.90,
+        percentChange: 0.75,
+        newsSentiment: 0.9,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 110 + Math.cos(i / 7) * 15 + Math.random() * 4 + (i * 0.7),
+        })),
+    },
+    'INTEL': {
+        price: 55.00,
+        change: 0.50,
+        percentChange: 0.91,
+        newsSentiment: 0.2,
+        economicIndicator: 'Stagnant',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 50 + Math.sin(i / 6) * 5 + Math.random() * 1 + (i * 0.3),
+        })),
+    },
+    'ORACLE': {
+        price: 95.00,
+        change: -0.20,
+        percentChange: -0.21,
+        newsSentiment: 0.5,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 90 + Math.sin(i / 8) * 10 + Math.random() * 2 + (i * 0.6),
+        })),
+    },
+    'NETFLIX': {
+        price: 650.00,
+        change: 10.50,
+        percentChange: 1.64,
+        newsSentiment: 0.8,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 600 + Math.cos(i / 5) * 40 + Math.random() * 10 + (i * 3.5),
+        })),
+    },
+    'NVIDIA': {
+        price: 920.00,
+        change: 15.00,
+        percentChange: 1.66,
+        newsSentiment: 0.95,
+        economicIndicator: 'Growing',
+        history: Array.from({ length: 36 }, (_, i) => ({ 
+            date: `Month ${i + 1}`,
+            price: 850 + Math.sin(i / 4) * 50 + Math.random() * 12 + (i * 4.2),
+        })),
+    },
+};
+
+const mockCompanyData = {
+    'MICROSOFT': 'MSFT',
+    'ENGRO': 'ENGRO',
+    'OIL & GAS DEVELOPMENT CO.': 'OGDC',
+    'TESLA': 'TSLA',
+    'PPL': 'PPL',
+    'SAMSUNG': 'SAMSUNG',
+    'INTEL': 'INTEL',
+    'ORACLE': 'ORACLE',
+    'NETFLIX': 'NETFLIX',
+    'NVIDIA': 'NVIDIA',
+};
+
+const fetchStockData = async (symbol) => {
+    // This is a simulation of fetching live data.
+    // In a real application, you would make an API call here.
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const data = mockStockData[symbol.toUpperCase()];
+            if (data) {
+                resolve(data);
+            } else {
+                reject(new Error('Stock symbol not found.'));
+            }
+        }, 800); // Simulate network delay
+    });
+};
+
+// Calculates a "buy potential" based on historical performance.
+const calculateBuyPotential = (history) => {
+    if (!history || history.length < 12) {
+        return 0;
+    }
+    const currentPrice = history[history.length - 1].price;
+    const priceTwelveMonthsAgo = history[history.length - 12].price;
+    // A larger drop results in a higher "potential" score.
+    return (priceTwelveMonthsAgo - currentPrice) / priceTwelveMonthsAgo;
+};
+
+// Determines the recommendation based on multiple factors.
+const getRecommendation = (stock, profitMargin) => {
+    const profit = ((stock.price - stock.purchasePrice) / stock.purchasePrice) * 100;
+    if (profit >= profitMargin) {
+        return 'Sell';
+    }
+
+    const buyScore = stock.potential * 2 + stock.newsSentiment;
+    const economicFactor = stock.economicIndicator === 'Growing' ? 0.5 : 0;
+    const finalScore = buyScore + economicFactor;
+
+    if (finalScore > 0.5) { 
+        return 'Buy';
+    }
+    return 'Hold';
+};
+
+// New function to simulate future growth based on sentiment and economic data.
+const getPredictedGrowth = (stock) => {
+    // Base monthly growth on news sentiment, with a bonus for growing economic indicators.
+    const monthlyGrowth = (stock.newsSentiment * 0.15) + (stock.economicIndicator === 'Growing' ? 0.05 : 0.01);
+    const weeklyGrowth = monthlyGrowth / 4;
+    const dailyGrowth = weeklyGrowth / 5; // Assumes 5 trading days a week.
+
+    return {
+        daily: (dailyGrowth * 100).toFixed(2),
+        weekly: (weeklyGrowth * 100).toFixed(2),
+        monthly: (monthlyGrowth * 100).toFixed(2),
+        // Use the combined score to rank the stocks.
+        rankingScore: monthlyGrowth,
+    };
+};
+
+
+const App = () => {
+    const [inputSymbol, setInputSymbol] = useState('');
+    const [portfolio, setPortfolio] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [selectedStock, setSelectedStock] = useState(null);
+    const [profitMargin, setProfitMargin] = useState(10);
+    const [recommendations, setRecommendations] = useState({ buy: [], sell: [], hold: [] });
+    const [userId, setUserId] = useState(null);
+    const [isAuthReady, setIsAuthReady] = useState(false);
+    const [publicPortfolios, setPublicPortfolios] = useState([]);
+    const [topStocks, setTopStocks] = useState([]);
+
+    // New state for grounded search results
+    const [searchResults, setSearchResults] = useState(null);
+
+    // Function to simulate a grounded search for a stock.
+    const groundedStockSearch = async (query) => {
+        try {
+            const systemPrompt = "Analyze the provided Google Search results for stock information. Extract the most recent price, and a brief summary of market sentiment or key news (positive, negative, or neutral). Format the output as a JSON object with 'price' (number), 'newsSentiment' (string), and 'economicIndicator' (string).";
+            const userQuery = `Find the latest stock price and news for ${query}.`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userQuery }] }],
+                tools: [{ "google_search": {} }],
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            price: { "type": "NUMBER" },
+                            newsSentiment: { "type": "NUMBER" },
+                            economicIndicator: { "type": "STRING" }
+                        }
+                    }
+                }
+            };
+            
+            const apiKey = ""; 
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+            const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (jsonText) {
+                const parsedData = JSON.parse(jsonText);
+                return parsedData;
+            } else {
+                throw new Error("Could not parse search results.");
+            }
+        } catch (error) {
+            console.error("Grounded search failed:", error);
+            setError("Grounded search failed. Please try again.");
+            return null;
+        }
+    };
+
+
+    useEffect(() => {
+        // Initialize Firebase and set up auth listener
+        const initializeAuth = async () => {
+            if (auth) {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined') {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    auth.onAuthStateChanged(user => {
+                        if (user) {
+                            setUserId(user.uid);
+                        } else {
+                            setUserId(null);
+                        }
+                        setIsAuthReady(true);
+                    });
+                } catch (error) {
+                    console.error("Firebase Auth initialization failed:", error);
+                    setIsAuthReady(true);
+                }
+            } else {
+                console.error("Firebase Auth not initialized. Check firebaseConfig.");
+                setIsAuthReady(true);
+            }
+        };
+        initializeAuth();
+        
+        // Calculate and set top stocks on initial load.
+        const allStocks = Object.keys(mockStockData).map(symbol => {
+            const stock = mockStockData[symbol];
+            return {
+                symbol,
+                ...stock,
+                ...getPredictedGrowth(stock),
+            };
+        });
+
+        const sortedStocks = allStocks.sort((a, b) => b.rankingScore - a.rankingScore);
+        setTopStocks(sortedStocks.slice(0, 10));
+    }, []);
+
+    useEffect(() => {
+        let unsubscribePortfolio;
+        let unsubscribePublic;
+
+        if (isAuthReady && userId) {
+            // Listener for the user's private portfolio
+            const portfolioRef = collection(db, 'artifacts', appId, 'users', userId, 'portfolio');
+            unsubscribePortfolio = onSnapshot(portfolioRef, (snapshot) => {
+                const fetchedPortfolio = [];
+                snapshot.forEach(doc => {
+                    fetchedPortfolio.push({ id: doc.id, ...doc.data() });
+                });
+                console.log("Fetched private portfolio:", fetchedPortfolio);
+                fetchPortfolioData(fetchedPortfolio);
+            }, (err) => {
+                console.error("Error fetching private portfolio:", err);
+            });
+
+            // Listener for all public portfolios - Corrected path
+            const publicRef = collection(db, 'artifacts', appId, 'public', 'data', 'public_portfolios');
+            unsubscribePublic = onSnapshot(publicRef, (snapshot) => {
+                const fetchedPublic = [];
+                snapshot.forEach(doc => {
+                    fetchedPublic.push({ id: doc.id, ...doc.data() });
+                });
+                console.log("Fetched public portfolios:", fetchedPublic);
+                setPublicPortfolios(fetchedPublic);
+            }, (err) => {
+                console.error("Error fetching public portfolios:", err);
+            });
+        }
+
+        return () => {
+            if (unsubscribePortfolio) {
+                unsubscribePortfolio();
+            }
+            if (unsubscribePublic) {
+                unsubscribePublic();
+            }
+        };
+    }, [isAuthReady, userId]);
+
+    const fetchPortfolioData = async (savedPortfolio) => {
+        if (savedPortfolio.length === 0) {
+            setLoading(false);
+            setPortfolio([]);
+            setRecommendations({ buy: [], sell: [], hold: [] });
+            return;
+        }
+        setLoading(true);
+        const portfolioData = [];
+        const buyRecs = [];
+        const sellRecs = [];
+        const holdRecs = [];
+        
+        for (const savedStock of savedPortfolio) {
+            try {
+                const data = await fetchStockData(savedStock.symbol);
+                const stockWithData = {
+                    ...savedStock,
+                    ...data,
+                    potential: calculateBuyPotential(data.history),
+                    purchasePrice: savedStock.purchasePrice || data.price, // Use addedAt price if not already set
+                };
+                stockWithData.recommendation = getRecommendation(stockWithData, profitMargin);
+                portfolioData.push(stockWithData);
+                
+                // Categorize for the recommendations list
+                switch(stockWithData.recommendation) {
+                    case 'Buy':
+                        buyRecs.push(stockWithData);
+                        break;
+                    case 'Sell':
+                        sellRecs.push(stockWithData);
+                        break;
+                    case 'Hold':
+                        holdRecs.push(stockWithData);
+                        break;
+                }
+            } catch (err) {
+                console.error(`Failed to fetch data for ${savedStock.symbol}:`, err);
+            }
+        }
+        
+        setPortfolio(portfolioData);
+        setRecommendations({ buy: buyRecs, sell: sellRecs, hold: holdRecs });
+        setLoading(false);
+    };
+
+    const handleAddStock = async (e) => {
+        e.preventDefault();
+        setError('');
+        let symbolToAdd = inputSymbol.toUpperCase().trim();
+        
+        if (!symbolToAdd) {
+            setError('Please enter a valid stock symbol or company name.');
+            return;
+        }
+    
+        setLoading(true);
+        const groundedData = await groundedStockSearch(symbolToAdd);
+
+        if (!groundedData) {
+            setLoading(false);
+            return;
+        }
+    
+        // Here, we simulate adding the grounded data to our mock data for the app to use
+        const newSymbol = symbolToAdd.split(" ")[0].toUpperCase();
+        const price = groundedData.price;
+        const newsSentiment = groundedData.newsSentiment;
+        const economicIndicator = groundedData.economicIndicator;
+        
+        // This is a simulation: in a real app, you would have a more robust way to handle live data.
+        mockStockData[newSymbol] = {
+            price: price,
+            change: 0, 
+            percentChange: 0,
+            newsSentiment: newsSentiment,
+            economicIndicator: economicIndicator,
+            history: Array.from({ length: 36 }, (_, i) => ({
+                date: `Month ${i + 1}`,
+                price: price * (1 - (36 - i) * 0.005) + Math.random() * (price * 0.01)
+            }))
+        };
+        
+        const isDuplicate = portfolio.some(stock => stock.symbol === newSymbol);
+        if (isDuplicate) {
+            setError('This stock is already in your portfolio.');
+            setLoading(false);
+            return;
+        }
+
+        try {
+            const stockData = await fetchStockData(newSymbol); // Check if symbol is valid
+            const docRef = await addDoc(collection(db, 'artifacts', appId, 'users', userId, 'portfolio'), {
+                symbol: newSymbol,
+                purchasePrice: stockData.price,
+                addedAt: new Date(),
+            });
+
+            // Add to public portfolio
+            const publicDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'public_portfolios', userId);
+            const publicDoc = await getDoc(publicDocRef);
+            let publicStocks = publicDoc.exists() ? publicDoc.data().stocks : [];
+
+            // Add the new stock with its historical data to the public array
+            publicStocks = [...publicStocks, { symbol: newSymbol, history: stockData.history }];
+
+            await setDoc(publicDocRef, { stocks: publicStocks, userId: userId }, { merge: true });
+
+            setInputSymbol('');
+            setSearchResults(groundedData);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const handleRemoveStock = async (stockId, symbol) => {
+        try {
+            await deleteDoc(doc(db, 'artifacts', appId, 'users', userId, 'portfolio', stockId));
+            if (selectedStock?.id === stockId) {
+                setSelectedStock(null);
+            }
+
+            // Remove from public portfolio
+            const publicDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'public_portfolios', userId);
+            const publicDoc = await getDoc(publicDocRef);
+            if (publicDoc.exists()) {
+                const updatedStocks = publicDoc.data().stocks.filter(stock => stock.symbol !== symbol);
+                await setDoc(publicDocRef, { stocks: updatedStocks }, { merge: true });
+            }
+
+        } catch (err) {
+            console.error("Error removing stock:", err);
+            setError("Failed to remove stock from portfolio.");
+        }
+    };
+
+    const isPositive = selectedStock && selectedStock.change >= 0;
+    const changeColor = isPositive ? 'text-green-500' : 'text-red-500';
+
+    const handleWebsiteSearch = (symbol) => {
+        // Construct a search query for the specific stock on PSX
+        window.open(`https://dps.psx.com.pk/search?symbol=${symbol}`, '_blank');
+    };
+
+    const getRecommendationIcon = (recommendation) => {
+        switch(recommendation) {
+            case 'Buy':
+                return <TrendingUp size={20} className="text-green-500" />;
+            case 'Sell':
+                return <TrendingDown size={20} className="text-red-500" />;
+            case 'Hold':
+                return <Clock size={20} className="text-yellow-500" />;
+            default:
+                return null;
+        }
+    };
+    
+    const getSentimentIcon = (sentiment) => {
+        if (sentiment > 0.5) return <ThumbsUp size={20} className="text-green-400" />;
+        if (sentiment < -0.5) return <ThumbsDown size={20} className="text-red-400" />;
+        return <Clock size={20} className="text-gray-400" />;
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-900 text-white p-4 flex flex-col items-center">
+            <style>
+                {`
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+                    body {
+                        font-family: 'Inter', sans-serif;
+                    }
+                    .fade-in {
+                        animation: fadeIn 0.5s ease-in-out;
+                    }
+                    @keyframes fadeIn {
+                        from { opacity: 0; }
+                        to { opacity: 1; }
+                    }
+                `}
+            </style>
+            <div className="w-full max-w-4xl p-6 bg-gray-800 rounded-xl shadow-lg mt-10">
+                <h1 className="text-3xl md:text-4xl font-bold mb-6 text-center text-blue-400">
+                    Stock Portfolio
+                </h1>
+                <div className="text-center text-sm mb-4">
+                    Your User ID: <span className="text-blue-300 font-mono break-all">{userId || 'Not signed in'}</span>
+                </div>
+                
+                <div className="bg-red-600 bg-opacity-30 border border-red-500 text-red-200 p-4 rounded-lg mb-6 text-center text-sm">
+                    **Disclaimer:** All stock recommendations and data are simulated and for demonstration purposes only. This is not financial advice.
+                </div>
+
+                <form onSubmit={handleAddStock} className="flex flex-col sm:flex-row items-center space-y-2 sm:space-y-0 sm:space-x-2 mb-4">
+                    <div className="relative flex-grow w-full">
+                        <input
+                            type="text"
+                            value={inputSymbol}
+                            onChange={(e) => setInputSymbol(e.target.value)}
+                            placeholder="Add stock symbol, company name, or URL"
+                            className="w-full pl-10 pr-4 py-2 rounded-full bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                    </div>
+                    <input
+                        type="number"
+                        value={profitMargin}
+                        onChange={(e) => setProfitMargin(e.target.value)}
+                        placeholder="Profit Margin (%)"
+                        className="w-full sm:w-1/3 py-2 px-4 rounded-full bg-gray-700 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                        type="submit"
+                        className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                        Add
+                    </button>
+                </form>
+
+                {error && (
+                    <div className="bg-red-500 text-white p-4 rounded-lg text-center font-semibold mb-6">
+                        {error}
+                    </div>
+                )}
+
+                {loading && (
+                    <div className="flex justify-center items-center py-10">
+                        <div className="w-12 h-12 border-4 border-gray-600 border-t-blue-500 rounded-full animate-spin"></div>
+                    </div>
+                )}
+                
+                {!isAuthReady && (
+                    <div className="flex justify-center items-center py-10">
+                        <div className="w-12 h-12 border-4 border-gray-600 border-t-blue-500 rounded-full animate-spin"></div>
+                        <p className="ml-4">Connecting to database...</p>
+                    </div>
+                )}
+
+                {isAuthReady && (
+                    <div className="space-y-6">
+                        {/* Top 10 Stocks Section */}
+                        <div className="bg-gray-700 p-6 rounded-xl shadow-md fade-in">
+                            <h2 className="text-2xl font-bold mb-4">Top 10 Stocks to Watch</h2>
+                            {topStocks.length === 0 ? (
+                                <p className="text-gray-400 text-center">No stock data available for analysis.</p>
+                            ) : (
+                                <ul className="space-y-4">
+                                    {topStocks.map((stock, index) => (
+                                        <li key={stock.symbol} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between">
+                                            <div className="flex items-center space-x-4">
+                                                <span className="text-blue-400 text-2xl font-bold">{index + 1}.</span>
+                                                <div>
+                                                    <span className="text-lg font-semibold">{stock.symbol}</span>
+                                                    <div className="text-gray-400 text-sm flex space-x-4 mt-1">
+                                                        <span>Daily: <span className="text-green-400 font-semibold">{stock.daily}%</span></span>
+                                                        <span>Weekly: <span className="text-green-400 font-semibold">{stock.weekly}%</span></span>
+                                                        <span>Monthly: <span className="text-green-400 font-semibold">{stock.monthly}%</span></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <TrendingUp size={24} className="text-green-500" />
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+
+                        {/* Recommendations Section */}
+                        <div className="bg-gray-700 p-6 rounded-xl shadow-md fade-in">
+                            <h2 className="text-2xl font-bold mb-4">AI Recommendations</h2>
+                            {portfolio.length === 0 ? (
+                                <p className="text-gray-400 text-center">Add stocks to your portfolio to get recommendations.</p>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="bg-gray-800 p-4 rounded-lg">
+                                        <h3 className="text-xl font-semibold mb-2 text-center text-green-400">Buy</h3>
+                                        <ul className="space-y-2">
+                                            {recommendations.buy.length > 0 ? recommendations.buy.map(stock => (
+                                                <li key={stock.id} className="text-center bg-gray-700 p-2 rounded-lg">{stock.symbol}</li>
+                                            )) : <li className="text-center text-gray-500">None</li>}
+                                        </ul>
+                                    </div>
+                                    <div className="bg-gray-800 p-4 rounded-lg">
+                                        <h3 className="text-xl font-semibold mb-2 text-center text-red-400">Sell</h3>
+                                        <ul className="space-y-2">
+                                            {recommendations.sell.length > 0 ? recommendations.sell.map(stock => (
+                                                <li key={stock.id} className="text-center bg-gray-700 p-2 rounded-lg">{stock.symbol}</li>
+                                            )) : <li className="text-center text-gray-500">None</li>}
+                                        </ul>
+                                    </div>
+                                    <div className="bg-gray-800 p-4 rounded-lg">
+                                        <h3 className="text-xl font-semibold mb-2 text-center text-yellow-400">Hold</h3>
+                                        <ul className="space-y-2">
+                                            {recommendations.hold.length > 0 ? recommendations.hold.map(stock => (
+                                                <li key={stock.id} className="text-center bg-gray-700 p-2 rounded-lg">{stock.symbol}</li>
+                                            )) : <li className="text-center text-gray-500">None</li>}
+                                        </ul>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Portfolio List */}
+                        {portfolio.length > 0 && (
+                            <div className="bg-gray-700 p-6 rounded-xl shadow-md mb-6 fade-in">
+                                <h2 className="text-2xl font-bold mb-4">My Portfolio</h2>
+                                <ul className="space-y-4">
+                                    {portfolio.map(stock => (
+                                        <li key={stock.id} 
+                                            className="flex items-center justify-between p-4 bg-gray-800 rounded-lg cursor-pointer transition-colors duration-200 hover:bg-gray-600"
+                                            onClick={() => setSelectedStock(stock)}
+                                        >
+                                            <div className="flex-grow flex items-center">
+                                                <div className="mr-3">{getRecommendationIcon(stock.recommendation)}</div>
+                                                <div>
+                                                    <div className="text-xl font-semibold">{stock.symbol}</div>
+                                                    <div className="text-lg text-gray-400">${stock.price.toFixed(2)}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex flex-col items-end">
+                                                <div className={`text-xl font-bold flex items-center space-x-2 ${stock.change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                    <span>{stock.change > 0 ? '+' : ''}{stock.change.toFixed(2)} ({stock.percentChange.toFixed(2)}%)</span>
+                                                </div>
+                                                <div className="mt-2 flex space-x-2">
+                                                    <button onClick={(e) => { e.stopPropagation(); handleRemoveStock(stock.id, stock.symbol); }} className="text-gray-500 hover:text-red-500 transition-colors">
+                                                        <Trash2 size={20} />
+                                                    </button>
+                                                    <button onClick={(e) => { e.stopPropagation(); handleWebsiteSearch(stock.symbol); }} className="text-blue-400 hover:text-blue-500 transition-colors">
+                                                        <Search size={20} />
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        
+                        {/* Public Portfolios Section */}
+                        <div className="bg-gray-700 p-6 rounded-xl shadow-md fade-in">
+                            <h2 className="text-2xl font-bold mb-4">Public Portfolios</h2>
+                            {publicPortfolios.length === 0 ? (
+                                <p className="text-gray-400 text-center">No public portfolios available yet.</p>
+                            ) : (
+                                <ul className="space-y-4">
+                                    {publicPortfolios.map(trader => (
+                                        <li key={trader.id} className="bg-gray-800 p-4 rounded-lg">
+                                            <h3 className="text-lg font-semibold text-blue-300 break-all mb-2">Trader ID: {trader.userId}</h3>
+                                            <div className="flex flex-wrap gap-2">
+                                                {trader.stocks.map((stock, index) => (
+                                                    <span key={index} className="bg-gray-600 text-white text-sm px-3 py-1 rounded-full">{stock.symbol}</span>
+                                                ))}
+                                            </div>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </div>
+                        
+                        {/* Search Results Section */}
+                        {searchResults && (
+                            <div className="bg-gray-700 p-6 rounded-xl shadow-md fade-in">
+                                <h2 className="text-2xl font-bold mb-4">Grounded Search Results</h2>
+                                <p className="text-lg mb-2">
+                                    **Latest Price:** <span className="text-green-400">${searchResults.price.toFixed(2)}</span>
+                                </p>
+                                <div className="flex items-center space-x-3 text-lg">
+                                    <Newspaper size={24} className="text-gray-400" />
+                                    <p>
+                                        **News Sentiment:** {searchResults.newsSentiment > 0.5 ? 'Very Positive' : searchResults.newsSentiment < -0.5 ? 'Very Negative' : 'Neutral'} ({searchResults.newsSentiment.toFixed(2)})
+                                    </p>
+                                </div>
+                                <div className="flex items-center space-x-3 text-lg mt-2">
+                                    <DollarSign size={24} className="text-gray-400" />
+                                    <p>
+                                        **Economic Indicator:** {searchResults.economicIndicator}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Stock Details Section */}
+                        {selectedStock && (
+                            <div className="space-y-6 fade-in">
+                                <div className="bg-gray-700 p-6 rounded-xl shadow-md">
+                                    <h2 className="text-2xl font-bold mb-2">
+                                        {selectedStock.symbol}
+                                    </h2>
+                                    <div className="flex justify-between items-end">
+                                        <span className="text-4xl font-bold">${selectedStock.price.toFixed(2)}</span>
+                                        <span className={`text-xl font-bold ${changeColor}`}>
+                                            {selectedStock.change > 0 ? '+' : ''}{selectedStock.change.toFixed(2)} ({selectedStock.percentChange.toFixed(2)}%)
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="bg-gray-700 p-6 rounded-xl shadow-md">
+                                    <h3 className="text-xl font-semibold mb-4">AI Analysis</h3>
+                                    <div className="space-y-4">
+                                        <div className="flex items-center space-x-3">
+                                            <Newspaper size={24} className="text-gray-400" />
+                                            <div>
+                                                <p className="font-semibold">News Sentiment:</p>
+                                                <p className="text-lg flex items-center space-x-1">
+                                                    {getSentimentIcon(selectedStock.newsSentiment)}
+                                                    <span>{selectedStock.newsSentiment > 0.5 ? 'Very Positive' : selectedStock.newsSentiment < -0.5 ? 'Very Negative' : 'Neutral'} ({selectedStock.newsSentiment.toFixed(2)})</span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center space-x-3">
+                                            <BarChart size={24} className="text-gray-400" />
+                                            <div>
+                                                <p className="font-semibold">Economic Indicator:</p>
+                                                <p className="text-lg">
+                                                    {selectedStock.economicIndicator}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="bg-gray-700 p-6 rounded-xl shadow-md">
+                                    <h3 className="text-xl font-semibold mb-4">Historical Data (3 Years)</h3>
+                                    <div className="w-full h-80">
+                                        <ResponsiveContainer>
+                                            <LineChart data={selectedStock.history}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#4a5568" />
+                                                <XAxis dataKey="date" stroke="#a0aec0" />
+                                                <YAxis stroke="#a0aec0" domain={['auto', 'auto']} />
+                                                <Tooltip 
+                                                    contentStyle={{ backgroundColor: '#2d3748', border: 'none', borderRadius: '8px' }}
+                                                    labelStyle={{ color: '#a0aec0' }}
+                                                />
+                                                <Line type="monotone" dataKey="price" stroke="#4299e1" strokeWidth={3} dot={false} />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+export default App;
